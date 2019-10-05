@@ -100,9 +100,11 @@ def getFiles(path, fileNameList, fileExt='jsp'):
     for r, d, f in os.walk(path):
         for file in f:
             filePath= os.path.join(r, file)
-            srcFileName= filePath[re.search(fileExt, filePath).start():]
-            if srcFileName in fileNameList:
-                filesDict[srcFileName] = filePath
+            index= re.search(fileExt, filePath)
+            if index:
+                srcFileName= filePath[index.start():]
+                if srcFileName in fileNameList:
+                    filesDict[srcFileName] = filePath
 
     return filesDict
 
@@ -182,10 +184,10 @@ def makeReport(outputPath, filesWithIssues):
     findingsSheet.set_column('F:F',150)
     findingsSheet.set_column('G:G',20)
 
-    findingsSheet.write_string('B3', '脆弱性あるパラメータ', header_2)
-    findingsSheet.write_string('C3', '該当資産', header_2)
+    findingsSheet.write_string('B3', 'Parameter variable', header_2)
+    findingsSheet.write_string('C3', 'FileName', header_2)
     findingsSheet.write_string('D3', 'Line No.', header_2)
-    findingsSheet.write_string('E3', '改修箇所', header_2)
+    findingsSheet.write_string('E3', 'Findings content', header_2)
     findingsSheet.write_string('F3', 'Actual content', header_2)
     findingsSheet.write_string('G3', 'Remarks', header_2)
 
@@ -205,7 +207,7 @@ def makeReport(outputPath, filesWithIssues):
 
     workbook.close()
 
-def process(findingsInfoDict, sourceFileDict, resultDict):
+def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
     outputPath= os.path.join(Path(__file__).resolve().parent, outputFolder)
     filesWithIssues= {}
 
@@ -227,7 +229,7 @@ def process(findingsInfoDict, sourceFileDict, resultDict):
         copyfile(sourceFileName, '{}\\{}'.format(beforePath, fileName))
         after = open('{}\\{}'.format(afterPath, fileName), 'w', encoding='UTF-8')
 
-        with open(sourceFileName, 'rt', encoding='utf-8') as fp:
+        with open(sourceFileName, 'rt', encoding=encoding) as fp:
             print("sourceFileName: %s" %sourceFileName)
             lineNo= 0
 
@@ -257,7 +259,7 @@ def process(findingsInfoDict, sourceFileDict, resultDict):
                                 if line == fixed:
                                     fixed= re.sub(VALUE_EQUAL_SUB_PATTERN.format(escapeChars(valueName)), VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1.format(ESCAPE_UTIL, valueName), line, re.IGNORECASE)
                             elif len(resultList) > 1:
-                                logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_3])
+                                logFileWithIssues(filesWithIssues, sourceFileName, [lineNoFinding[0], sourceFileName, str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_3])
                                 #print("->WARNING: line not fixed. -> {} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], line))
                             else:
                                 subPatternList= [VALUE_EQUAL_SUB_PATTERN]
@@ -280,12 +282,12 @@ def process(findingsInfoDict, sourceFileDict, resultDict):
                                     fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_5, subPatternList, replacementList, ESCAPE, parameterValue)
 
                             if line == fixed and (ESCAPE_UTIL not in line or ESCAPE not in line):
-                                logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_2])
+                                logFileWithIssues(filesWithIssues, sourceFileName, [lineNoFinding[0], sourceFileName, str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_2])
                                 #print("->WARNING: line not fixed. -> {} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], line))
                             else:         
                                 line= fixed
                         else:
-                            logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_1])
+                            logFileWithIssues(filesWithIssues, sourceFileName, [lineNoFinding[0], sourceFileName, str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_1])
                             #print("->ISSUE: Mismatch line findings. ->{} ->{} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], lineNoFinding[3], line))
                 after.write(line)
 
@@ -303,7 +305,8 @@ if __name__ == "__main__":
 
         #time to read all the files involve
         resultDict= {}
-        process(findingsInfoDict, sourceFileDict, resultDict)
+        encoding= config['OTHERS']['ENCODING']
+        process(findingsInfoDict, sourceFileDict, resultDict, encoding)
         
         finish = datetime.datetime.now()
         print(f'\nTime elapsed:\n{finish - start}')
