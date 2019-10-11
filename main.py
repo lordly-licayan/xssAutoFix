@@ -8,7 +8,7 @@ config_file = os.path.join(Path(__file__).resolve().parent, 'config.ini')
 config = configparser.ConfigParser()
 config.read(config_file,encoding='UTF-8')
 
-VALUE_EQUAL_SEARCH_PATTERN_1= r'{}="<%=(.*?)%>"'
+VALUE_EQUAL_SEARCH_PATTERN_1= r'{}\s*=\s*"<%=(.*?)%>"'
 VALUE_EQUAL_SEARCH_PATTERN_1_1= r'{}=<%=(.*?)%>'
 VALUE_EQUAL_SEARCH_PATTERN_2= r'<%=(.*?)%>'
 VALUE_EQUAL_SEARCH_PATTERN_3= r'\+\s*(\w+?|\w+\(\w*\)\B|\w+\[\w\]|\w+?|\w+[.]\w+)\s*[\+;]'
@@ -184,10 +184,10 @@ def makeReport(outputPath, filesWithIssues):
     findingsSheet.set_column('F:F',150)
     findingsSheet.set_column('G:G',20)
 
-    findingsSheet.write_string('B3', 'Parameter variable', header_2)
-    findingsSheet.write_string('C3', 'FileName', header_2)
+    findingsSheet.write_string('B3', '脆弱性あるパラメータ', header_2)
+    findingsSheet.write_string('C3', '該当資産', header_2)
     findingsSheet.write_string('D3', 'Line No.', header_2)
-    findingsSheet.write_string('E3', 'Findings content', header_2)
+    findingsSheet.write_string('E3', '改修箇所', header_2)
     findingsSheet.write_string('F3', 'Actual content', header_2)
     findingsSheet.write_string('G3', 'Remarks', header_2)
 
@@ -227,9 +227,9 @@ def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
         makeDirectory(afterPath)
 
         copyfile(sourceFileName, '{}\\{}'.format(beforePath, fileName))
-        after = open('{}\\{}'.format(afterPath, fileName), 'w', encoding='UTF-8')
+        after = open('{}\\{}'.format(afterPath, fileName), 'w', encoding= encoding)
 
-        with open(sourceFileName, 'rt', encoding=encoding) as fp:
+        with open(sourceFileName, 'rt', encoding= encoding) as fp:
             print("sourceFileName: %s" %sourceFileName)
             lineNo= 0
 
@@ -259,7 +259,7 @@ def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
                                 if line == fixed:
                                     fixed= re.sub(VALUE_EQUAL_SUB_PATTERN.format(escapeChars(valueName)), VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1.format(ESCAPE_UTIL, valueName), line, re.IGNORECASE)
                             elif len(resultList) > 1:
-                                logFileWithIssues(filesWithIssues, sourceFileName, [lineNoFinding[0], sourceFileName, str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_3])
+                                logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_3])
                                 #print("->WARNING: line not fixed. -> {} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], line))
                             else:
                                 subPatternList= [VALUE_EQUAL_SUB_PATTERN]
@@ -282,12 +282,12 @@ def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
                                     fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_5, subPatternList, replacementList, ESCAPE, parameterValue)
 
                             if line == fixed and (ESCAPE_UTIL not in line or ESCAPE not in line):
-                                logFileWithIssues(filesWithIssues, sourceFileName, [lineNoFinding[0], sourceFileName, str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_2])
+                                logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_2])
                                 #print("->WARNING: line not fixed. -> {} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], line))
                             else:         
                                 line= fixed
                         else:
-                            logFileWithIssues(filesWithIssues, sourceFileName, [lineNoFinding[0], sourceFileName, str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_1])
+                            logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_1])
                             #print("->ISSUE: Mismatch line findings. ->{} ->{} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], lineNoFinding[3], line))
                 after.write(line)
 
