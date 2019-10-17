@@ -1,49 +1,19 @@
-import configparser, os, re, datetime, time, xlrd, xlsxwriter
+import configparser, os, re, datetime, time
+import logging
 from pathlib import Path
 from os.path import exists
 from shutil import copyfile
+from helper import *
+from constants import *
 
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 config_file = os.path.join(Path(__file__).resolve().parent, 'config.ini')
 config = configparser.ConfigParser()
-config.read(config_file,encoding='UTF-8')
-
-VALUE_EQUAL_SEARCH_PATTERN_1= r'{}\s*=\s*"<%=(.*?)%>"'
-VALUE_EQUAL_SEARCH_PATTERN_1_1= r'{}=<%=(.*?)%>'
-VALUE_EQUAL_SEARCH_PATTERN_2= r'<%=(.*?)%>'
-VALUE_EQUAL_SEARCH_PATTERN_3= r'\+\s*(\w+?|\w+\(\w*\)\B|\w+\[\w\]|\w+?|\w+[.]\w+)\s*[\+;]'
-VALUE_EQUAL_SEARCH_PATTERN_4= r'\$\(\"(\w*)\"\)\.value'
-VALUE_EQUAL_SEARCH_PATTERN_5= r'{}.value'
-
-VALUE_EQUAL_SUB_PATTERN= r'<%=(\s*){}(\s*)%>'
-VALUE_EQUAL_SUB_PATTERN_3_1= r'\+\s*{}\s*\+'
-VALUE_EQUAL_SUB_PATTERN_3_2= r'\+\s*{}\s*;'
-VALUE_EQUAL_SUB_PATTERN_4= r'\$\(\"{}\"\)\.value'
-VALUE_EQUAL_SUB_PATTERN_5= r'{}'
-
-VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1= r'<%= {}({}) %>'
-VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_3_1= r'+ {}({}) +'
-VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_3_2= r'+ {}({});'
-VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_4= r'{}($("{}").value)'
-VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_5= r' {}({}) '
-
-ESCAPE_UTIL = config['OTHERS']['ESCAPE_UTIL']
-ESCAPE= 'escape'
-JSP_TAG= '<%='
-FIXED_PATTERN= r'{}\({}\)'
-LINE_NO= 2
-
-AUTOMATION_FINDING_1= "Mismatch Line Content."
-AUTOMATION_FINDING_2= "Line has not been modified."
-AUTOMATION_FINDING_3= "Number of values=<%=%> is more than 1."
-
+config.read(config_file, encoding='UTF-8')
 outputFolder= config['PATH']['OUTPUT_FOLDER'] 
 indicator = config['SHEET']['FINDINGS_INDICATOR']
-
-
-def makeDirectory(folderPath):
-    if not exists(folderPath):
-        os.makedirs(folderPath)
 
 
 def getFindingsInfo():
@@ -92,25 +62,6 @@ def logFileWithIssues(filesWithIssues, keyName, lineNoIssueList):
         issuesList= filesWithIssues[keyName]
     issuesList.append(lineNoIssueList)
     filesWithIssues[keyName]= issuesList
-                 
-
-def getFiles(path, fileNameList, fileExt='jsp'):
-    filesDict = {}
-    # r=root, d=directories, f = files
-    for r, d, f in os.walk(path):
-        for file in f:
-            filePath= os.path.join(r, file)
-            index= re.search(fileExt, filePath)
-            if index:
-                srcFileName= filePath[index.start():]
-                if srcFileName in fileNameList:
-                    filesDict[srcFileName] = filePath
-
-    return filesDict
-
-
-def escapeChars(str):
-    return str.replace('(','\(').replace(')','\)').replace('+','\+').replace('[','\[').replace(']','\]')
 
 
 def getLineNoDict(findingsInfoList):
@@ -123,6 +74,26 @@ def getLineNoDict(findingsInfoList):
         lineNoList.append(item)
         lineNoDict[lineNoKey]= lineNoList
     return lineNoDict
+
+
+def getLineContentDict(findingsInfoList):
+    lineContentDict = {}
+    lineNoDict= {}
+    for item in findingsInfoList:
+        itemKey= item[LINE_CONTENT].lower().strip()
+        itemList= []
+        lineNoList= []
+
+        if itemKey in lineContentDict:
+            itemList= lineContentDict[itemKey]
+            lineNoList= lineNoDict[itemKey]
+
+        itemList.append(item)
+        lineNoList.append(item[LINE_NO])
+
+        lineContentDict[itemKey]= itemList
+        lineNoDict[itemKey]= lineNoList
+    return lineContentDict, lineNoDict
 
 
 def hasFixed(line, subPatternList, escapingValue, parameterValue):
@@ -154,67 +125,56 @@ def getFix(line, searchPattern, subPatternList, replacementPatternList, escaping
     return fixed
 
 
-def makeReport(outputPath, filesWithIssues):
-    workbook_name = os.path.join(outputPath, f'Automation_Result_{time.time_ns()}.xlsx')
-    workbook = xlsxwriter.Workbook(workbook_name)
-    header_1 = workbook.add_format({'bold': True})
-    header_2 = workbook.add_format({'border' : 1,'bg_color' : '#C6EFCE'})
-    border = workbook.add_format({'border': 1})
+def doFix(line, parameterValue):    
+    fixed= line
+    resultList= re.findall(VALUE_EQUAL_SEARCH_PATTERN_1.format('value'), line, re.IGNORECASE)        
+    if len(resultList) == 0:
+        resultList= re.findall(VALUE_EQUAL_SEARCH_PATTERN_1_1.format(parameterValue), line, re.IGNORECASE)
+        
+    if len(resultList) == 1:
+        valueName= resultList[0].strip()
+        if ESCAPE_UTIL in valueName:
+            return FIX_SKIP, None
 
-    # Creating first sheet
-    fileSheet = workbook.add_worksheet('Files with issues')
-    fileSheet.set_column('A:A',8)
-    fileSheet.set_column('B:B',50)
+        fixed= re.sub(VALUE_EQUAL_SUB_PATTERN.format(parameterValue), VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1.format(ESCAPE_UTIL, valueName), line, re.IGNORECASE)
+        if line == fixed:
+            fixed= re.sub(VALUE_EQUAL_SUB_PATTERN.format(escapeChars(valueName)), VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1.format(ESCAPE_UTIL, valueName), line, re.IGNORECASE)
+    elif len(resultList) > 1:
+        return FIX_FINDINGS_EXCEED, None
+    else:
+        subPatternList= [VALUE_EQUAL_SUB_PATTERN]
+        replacementList= [VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1]
+        fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_2, subPatternList, replacementList, ESCAPE_UTIL, parameterValue)
+                                            
+        if line == fixed:
+            subPatternList= [VALUE_EQUAL_SUB_PATTERN_3_1, VALUE_EQUAL_SUB_PATTERN_3_2]
+            replacementList= [VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_3_1, VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_3_2]
+            fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_3, subPatternList, replacementList, ESCAPE, parameterValue)
+            
+        if line == fixed:
+            subPatternList= [VALUE_EQUAL_SUB_PATTERN_4]
+            replacementList= [VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_4]
+            fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_4, subPatternList, replacementList, ESCAPE, parameterValue)
 
-    fileSheet.write('B1','Filename:', header_1)
-    fileSheetRow = 1
-    fileSheetCol = 0
+    if line == fixed and any(fixedIndicator not in line for fixedIndicator in [ESCAPE_UTIL, ESCAPE]):
+        return FIX_NOT_MODIFIED, None
+    else:
+        return FIX_SUCCESSFUL, fixed
 
-    for item in filesWithIssues:
-        fileSheet.write_number(fileSheetRow, fileSheetCol, fileSheetRow)
-        fileSheet.write_string(fileSheetRow, fileSheetCol+1, item, border)
-        fileSheetRow +=1 
-    
-    # Creating second sheet
-    findingsSheet = workbook.add_worksheet('QA')
-    findingsSheet.set_column('B:B',40)
-    findingsSheet.set_column('C:C',80)
-    findingsSheet.set_column('D:D',10)
-    findingsSheet.set_column('E:E',100)
-    findingsSheet.set_column('F:F',150)
-    findingsSheet.set_column('G:G',20)
-
-    findingsSheet.write_string('B3', '脆弱性あるパラメータ', header_2)
-    findingsSheet.write_string('C3', '該当資産', header_2)
-    findingsSheet.write_string('D3', 'Line No.', header_2)
-    findingsSheet.write_string('E3', '改修箇所', header_2)
-    findingsSheet.write_string('F3', 'Actual content', header_2)
-    findingsSheet.write_string('G3', 'Remarks', header_2)
-
-    findingsSheetRow = 3
-    findingsSheetCol = 1
-
-    for issuesKey in filesWithIssues:
-        itemList= filesWithIssues[issuesKey]
-        for item in itemList:
-            findingsSheet.write_string(findingsSheetRow, findingsSheetCol, item[0])
-            findingsSheet.write_string(findingsSheetRow, findingsSheetCol+1, item[1])
-            findingsSheet.write_string(findingsSheetRow, findingsSheetCol+2, item[2])
-            findingsSheet.write_string(findingsSheetRow, findingsSheetCol+3, item[3])
-            findingsSheet.write_string(findingsSheetRow, findingsSheetCol+4, item[4])
-            findingsSheet.write_string(findingsSheetRow, findingsSheetCol+5, item[5])
-            findingsSheetRow += 1
-
-    workbook.close()
-
+        
 def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
     outputPath= os.path.join(Path(__file__).resolve().parent, outputFolder)
     filesWithIssues= {}
+    unChangedFileList= []
 
     for fileNameKey in sourceFileDict:
         sourceFileName= sourceFileDict[fileNameKey]
         findingsInfoList= findingsInfoDict[fileNameKey]
         lineNoDict= getLineNoDict(findingsInfoList)
+        lineContentDict, lineNoContentDict= getLineContentDict(findingsInfoList)
+        misMatchedDict= {}
+        fixedMisMatchedList= []
+        hasBeenFixed= False
         
         lastIndex= fileNameKey.rfind('\\')
         parentPath= fileNameKey[:lastIndex]
@@ -232,73 +192,80 @@ def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
         with open(sourceFileName, 'rt', encoding= encoding) as fp:
             print("sourceFileName: %s" %sourceFileName)
             lineNo= 0
-
+            
             for line in fp:
                 lineNo+= 1
                 lineNoKey= str(lineNo)
+                keyName= line.lower().strip()
+                result= FIX_SKIP
+
+                if keyName in lineContentDict:
+                    lineContentList= lineContentDict[keyName]
+                    lineNoContentList= lineNoContentDict[keyName]
+                    
+                    if lineNo not in lineNoContentList:
+                        for lineContent in lineContentList:
+                            parameterValue= lineContent[0]
+                            result, fixed= doFix(line, parameterValue)
+                            if result == FIX_SUCCESSFUL:
+                                line= fixed
+                                hasBeenFixed= True
+                                fixedMisMatchedList.append(keyName)
+                                if keyName in misMatchedDict:
+                                    issueList= misMatchedDict[keyName]
+                                    if issueList:
+                                        del issueList[0]
+                                    misMatchedDict[keyName]= issueList
+                                break
+
                 if lineNoKey in lineNoDict:
                     lineNoFindingList= lineNoDict[lineNoKey]
-                    originalLine= line
-                    
+
                     for lineNoFinding in lineNoFindingList:
-                        if (re.sub('\s', '', originalLine.strip().lower()) == re.sub('\s', '', lineNoFinding[3].strip().lower())):
-                            fixed= line
-                            #print("Line no: {}-> {};{}".format(lineNo, findingsInfo[0], line))
+                        lineInFindings= lineNoFinding[3]
+                        keyName= lineNoFinding[3].lower().strip()
 
-                            parameterValue= lineNoFinding[0].strip()
-                            resultList= re.findall(VALUE_EQUAL_SEARCH_PATTERN_1.format('value'), line, re.IGNORECASE)
-                            
-                            if len(resultList) == 0:
-                                resultList= re.findall(VALUE_EQUAL_SEARCH_PATTERN_1_1.format(parameterValue), line, re.IGNORECASE)
-                                
-                            if len(resultList) == 1:
-                                valueName= resultList[0].strip()
-                                if ESCAPE_UTIL in valueName:
-                                    continue
-                                fixed= re.sub(VALUE_EQUAL_SUB_PATTERN.format(parameterValue), VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1.format(ESCAPE_UTIL, valueName), line, re.IGNORECASE)
-                                if line == fixed:
-                                    fixed= re.sub(VALUE_EQUAL_SUB_PATTERN.format(escapeChars(valueName)), VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1.format(ESCAPE_UTIL, valueName), line, re.IGNORECASE)
-                            elif len(resultList) > 1:
-                                logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_3])
-                                #print("->WARNING: line not fixed. -> {} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], line))
-                            else:
-                                subPatternList= [VALUE_EQUAL_SUB_PATTERN]
-                                replacementList= [VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_1]
-                                fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_2, subPatternList, replacementList, ESCAPE_UTIL, parameterValue)
-                                                                    
-                                if line == fixed:
-                                    subPatternList= [VALUE_EQUAL_SUB_PATTERN_3_1, VALUE_EQUAL_SUB_PATTERN_3_2]
-                                    replacementList= [VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_3_1, VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_3_2]
-                                    fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_3, subPatternList, replacementList, ESCAPE, parameterValue)
-                                    
-                                if line == fixed:
-                                    subPatternList= [VALUE_EQUAL_SUB_PATTERN_4]
-                                    replacementList= [VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_4]
-                                    fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_4, subPatternList, replacementList, ESCAPE, parameterValue)
-
-                                if line == fixed:
-                                    subPatternList= [VALUE_EQUAL_SUB_PATTERN_5]
-                                    replacementList= [VALUE_EQUAL_SUB_PATTERN_REPLACEMENT_5]
-                                    fixed= getFix(line, VALUE_EQUAL_SEARCH_PATTERN_5, subPatternList, replacementList, ESCAPE, parameterValue)
-
-                            if line == fixed and (ESCAPE_UTIL not in line or ESCAPE not in line):
-                                logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_2])
-                                #print("->WARNING: line not fixed. -> {} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], line))
-                            else:         
-                                line= fixed
+                        if keyName in fixedMisMatchedList:
+                            fixedMisMatchedList.remove(keyName)
                         else:
-                            logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, AUTOMATION_FINDING_1])
-                            #print("->ISSUE: Mismatch line findings. ->{} ->{} -> {} -> {} -> {}".format(fileName, lineNo, lineNoFinding[0], lineNoFinding[3], line))
+                            if (re.sub('\s', '', line.strip().lower()) == re.sub('\s', '', lineInFindings.strip().lower())):
+                                parameterValue= lineNoFinding[0].strip()
+                                result, fixed= doFix(line, parameterValue)
+                                if result != FIX_SUCCESSFUL:
+                                    logFileWithIssues(filesWithIssues, fileName, [lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, FIX_RESULT[result]])                       
+                                else:
+                                    line= fixed
+                                    hasBeenFixed= True
+                            elif any(fixedIndicator in line for fixedIndicator in [ESCAPE_UTIL, ESCAPE]):
+                                continue
+                            else:
+                                issueList= []
+                                if keyName in misMatchedDict:
+                                    issueList= misMatchedDict[keyName]
+                                issueList.append([fileName, lineNoFinding[0], lineNoFinding[1], str(lineNo), lineNoFinding[3], line, FIX_RESULT[FIX_MISMATCH]])
+                                misMatchedDict[keyName]= issueList
+                            
                 after.write(line)
-
         if not after.closed:
             after.close()
-    
-    makeReport(outputPath, filesWithIssues)
+
+        if not hasBeenFixed:
+            unChangedFileList.append(fileName)
+
+        for misMatchedKey in misMatchedDict:
+            issueList= misMatchedDict[misMatchedKey]
+            for item in issueList:
+                fileNameKey= item[0]
+                del item[0]
+                logFileWithIssues(filesWithIssues, fileName, item)
+
+    makeReport(outputPath, unChangedFileList, filesWithIssues)
 
 if __name__ == "__main__":
     try:
         start = datetime.datetime.now()
+        print(f'\nInitializing...\nTime started: {start}')
+
         findingsInfoDict= getFindingsInfo()
         sourcePath= config['PATH']['SOURCE_CODE_PATH']
         sourceFileDict= getFiles(sourcePath, findingsInfoDict.keys())
@@ -312,4 +279,5 @@ if __name__ == "__main__":
         print(f'\nTime elapsed:\n{finish - start}')
         
     except Exception as err:
-        print(f'Error found!\n{err}\n')
+        logger.error(str(err), exc_info=True)
+        input("")
