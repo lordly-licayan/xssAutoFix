@@ -1,7 +1,7 @@
 import configparser, os, re, datetime, time
 import logging
 from pathlib import Path
-from os.path import exists
+from os.path import exists, join
 from shutil import copyfile
 from helper import *
 from constants import *
@@ -9,10 +9,10 @@ from constants import *
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
-config_file = os.path.join(Path(__file__).resolve().parent, 'config.ini')
+currentPath= Path(__file__).resolve().parent
+config_file = join(currentPath, 'config.ini')
 config = configparser.ConfigParser()
 config.read(config_file, encoding='UTF-8')
-outputFolder= config['PATH']['OUTPUT_FOLDER'] 
 indicator = config['SHEET']['FINDINGS_INDICATOR']
 
 
@@ -162,8 +162,8 @@ def doFix(line, parameterValue):
         return FIX_SUCCESSFUL, fixed
 
         
-def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
-    outputPath= os.path.join(Path(__file__).resolve().parent, outputFolder)
+def process(findingsInfoDict, sourceFileDict, destinationPath, resultDict, encoding):
+    
     filesWithIssues= {}
     unChangedFileList= []
 
@@ -180,8 +180,8 @@ def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
         parentPath= fileNameKey[:lastIndex]
         fileName= fileNameKey[lastIndex+1:]
         programName= fileNameKey[lastIndex+1:fileNameKey.rfind('.')]
-        beforePath = os.path.join(outputFolder, '{}\\{}\\Before\\{}'.format(outputPath, programName, parentPath))
-        afterPath = os.path.join(outputFolder, '{}\\{}\\After\\{}'.format(outputPath, programName, parentPath))
+        beforePath = '{}\\{}\\Before\\{}'.format(destinationPath, programName, parentPath)
+        afterPath = '{}\\{}\\After\\{}'.format(destinationPath, programName, parentPath)
         
         makeDirectory(beforePath)
         makeDirectory(afterPath)
@@ -259,25 +259,32 @@ def process(findingsInfoDict, sourceFileDict, resultDict, encoding):
                 del item[0]
                 logFileWithIssues(filesWithIssues, fileName, item)
 
-    makeReport(outputPath, unChangedFileList, filesWithIssues)
+    makeReport(destinationPath, unChangedFileList, filesWithIssues)
 
 if __name__ == "__main__":
     try:
         start = datetime.datetime.now()
         print(f'\nInitializing...\nTime started: {start}')
-
+        
         findingsInfoDict= getFindingsInfo()
         sourcePath= config['PATH']['SOURCE_CODE_PATH']
         sourceFileDict= getFiles(sourcePath, findingsInfoDict.keys())
 
+        outputFolder= config['PATH']['OUTPUT_FOLDER']
+        outputPath= config['PATH']['OUTPUT_PATH']
+
+        if outputPath:
+            destinationPath= join(outputPath, outputFolder)
+        else:
+            destinationPath= join(currentPath, outputFolder)
         #time to read all the files involve
         resultDict= {}
         encoding= config['OTHERS']['ENCODING']
-        process(findingsInfoDict, sourceFileDict, resultDict, encoding)
+        process(findingsInfoDict, sourceFileDict, destinationPath, resultDict, encoding)
         
         finish = datetime.datetime.now()
         print(f'\nTime elapsed:\n{finish - start}')
         
     except Exception as err:
         logger.error(str(err), exc_info=True)
-        input("")
+        input('')
