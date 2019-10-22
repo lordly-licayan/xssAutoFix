@@ -28,10 +28,12 @@ FIX_SUCCESSFUL= 1
 FIX_MISMATCH= 2
 FIX_NOT_MODIFIED= 3
 FIX_FINDINGS_EXCEED= 4
+FIX_ALREADY_DONE= 5
 
 FIX_RESULT={
     FIX_SUCCESSFUL: 'SUCCESS',
     FIX_MISMATCH: 'Mismatch Line Content.',
     FIX_NOT_MODIFIED: 'Line has not been modified.',
-    FIX_FINDINGS_EXCEED: 'Number of values=<%=%> is more than 1.'
+    FIX_FINDINGS_EXCEED: 'Number of values=<%=%> is more than 1.',
+    FIX_ALREADY_DONE: 'Fix already done'
 }
