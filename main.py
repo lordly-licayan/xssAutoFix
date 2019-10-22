@@ -199,6 +199,9 @@ def process(findingsInfoDict, sourceFileDict, destinationPath, resultDict, encod
                 keyName= line.lower().strip()
                 result= FIX_SKIP
 
+                if 'HyoukiJoukenLstcondition.jsp' in sourceFileName and lineNo == 402:
+                    me= True
+
                 if keyName in lineContentDict:
                     lineContentList= lineContentDict[keyName]
                     lineNoContentList= lineNoContentDict[keyName]
@@ -215,7 +218,6 @@ def process(findingsInfoDict, sourceFileDict, destinationPath, resultDict, encod
                                     issueList= misMatchedDict[keyName]
                                     if issueList:
                                         del issueList[0]
-                                    misMatchedDict[keyName]= issueList
                                 break
 
                 if lineNoKey in lineNoDict:
@@ -251,6 +253,12 @@ def process(findingsInfoDict, sourceFileDict, destinationPath, resultDict, encod
 
         if not hasBeenFixed:
             unChangedFileList.append(fileName)
+
+        for keyName in fixedMisMatchedList:
+            if keyName in misMatchedDict:
+                issueList= misMatchedDict[keyName]
+                for item in issueList:
+                    item[6]= FIX_RESULT[FIX_ALREADY_DONE]
 
         for misMatchedKey in misMatchedDict:
             issueList= misMatchedDict[misMatchedKey]
